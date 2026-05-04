@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 export type ServerStatus = "stopped" | "starting" | "running" | "stopping";
+export type PlayitStatus = "stopped" | "downloading" | "starting" | "claiming" | "running";
 
 export interface ServerInfo {
   status: ServerStatus;
@@ -8,13 +9,25 @@ export interface ServerInfo {
   jarExists: boolean;
 }
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+export interface PlayitInfo {
+  status: PlayitStatus;
+  claimUrl: string | null;
+  isSetup: boolean;
+  binaryExists: boolean;
+}
+
 const API_BASE = "/api";
 
 export function useMinecraftServer() {
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<ServerStatus>("stopped");
   const [connected, setConnected] = useState(false);
+  const [playit, setPlayit] = useState<PlayitInfo>({
+    status: "stopped",
+    claimUrl: null,
+    isSetup: false,
+    binaryExists: false,
+  });
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -50,13 +63,23 @@ export function useMinecraftServer() {
           const payload = msg.payload as {
             status: ServerStatus;
             logs: string[];
+            playit?: PlayitInfo;
           };
           setStatus(payload.status);
           setLogs(payload.logs);
+          if (payload.playit) setPlayit(payload.playit);
         } else if (msg.type === "log") {
           setLogs((prev) => [...prev.slice(-499), msg.payload as string]);
         } else if (msg.type === "status") {
           setStatus(msg.payload as ServerStatus);
+        } else if (msg.type === "playit_log") {
+          setLogs((prev) => [...prev.slice(-499), msg.payload as string]);
+        } else if (msg.type === "playit_status") {
+          setPlayit((prev) => ({ ...prev, status: msg.payload as PlayitStatus }));
+        } else if (msg.type === "playit_claim") {
+          setPlayit((prev) => ({ ...prev, claimUrl: msg.payload as string | null }));
+        } else if (msg.type === "playit_setup") {
+          setPlayit((prev) => ({ ...prev, isSetup: msg.payload as boolean, claimUrl: null }));
         }
       } catch {
         // ignore
@@ -86,5 +109,13 @@ export function useMinecraftServer() {
     }
   };
 
-  return { logs, status, connected, startServer, stopServer, sendCommand };
+  const startPlayit = async () => {
+    await fetch(`${API_BASE}/playit/start`, { method: "POST" });
+  };
+
+  const stopPlayit = async () => {
+    await fetch(`${API_BASE}/playit/stop`, { method: "POST" });
+  };
+
+  return { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit };
 }

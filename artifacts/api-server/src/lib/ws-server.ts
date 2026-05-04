@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import { mcServer } from "./minecraft-server.js";
+import { playitManager } from "./playit-manager.js";
 import { logger } from "./logger.js";
 
 export function setupWebSocket(httpServer: Server): void {
@@ -20,13 +21,22 @@ export function setupWebSocket(httpServer: Server): void {
     send("init", {
       status: mcServer.status,
       logs: mcServer.logs,
+      playit: playitManager.getInfo(),
     });
 
     const onLog = (line: string) => send("log", line);
     const onStatus = (status: string) => send("status", status);
+    const onPlayitLog = (line: string) => send("playit_log", line);
+    const onPlayitStatus = (status: string) => send("playit_status", status);
+    const onPlayitClaim = (url: string | null) => send("playit_claim", url);
+    const onPlayitSetup = (v: boolean) => send("playit_setup", v);
 
     mcServer.on("log", onLog);
     mcServer.on("status", onStatus);
+    playitManager.on("playit_log", onPlayitLog);
+    playitManager.on("playit_status", onPlayitStatus);
+    playitManager.on("playit_claim", onPlayitClaim);
+    playitManager.on("playit_setup", onPlayitSetup);
 
     ws.on("message", (raw) => {
       try {
@@ -42,6 +52,10 @@ export function setupWebSocket(httpServer: Server): void {
     ws.on("close", () => {
       mcServer.off("log", onLog);
       mcServer.off("status", onStatus);
+      playitManager.off("playit_log", onPlayitLog);
+      playitManager.off("playit_status", onPlayitStatus);
+      playitManager.off("playit_claim", onPlayitClaim);
+      playitManager.off("playit_setup", onPlayitSetup);
       logger.info("WebSocket client disconnected");
     });
 

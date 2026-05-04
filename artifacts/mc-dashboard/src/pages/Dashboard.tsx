@@ -10,6 +10,7 @@ function getLogColor(line: string): string {
   if (l.includes("[info]")) return "text-slate-300";
   if (l.includes("> ")) return "text-cyan-400";
   if (l.includes("[dashboard]")) return "text-blue-400";
+  if (l.includes("[playit]")) return "text-violet-400";
   return "text-slate-400";
 }
 
@@ -29,8 +30,130 @@ function StatusBadge({ status }: { status: ServerStatus }) {
   );
 }
 
+interface HangarProject {
+  namespace: { slug: string; owner: string };
+  name: string;
+  description: string;
+  stats: { downloads: number };
+  category: string;
+}
+
+interface HangarSearchResult {
+  result: HangarProject[];
+  pagination: { count: number };
+}
+
+function PluginInstaller() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<HangarProject[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [installedMsg, setInstalledMsg] = useState<Record<string, string>>({});
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setResults([]);
+    try {
+      const res = await fetch(`/api/plugins/search?q=${encodeURIComponent(query)}&limit=10`);
+      const data = (await res.json()) as HangarSearchResult;
+      setResults(data.result ?? []);
+      if ((data.result ?? []).length === 0) setSearchError("No plugins found.");
+    } catch {
+      setSearchError("Search failed. Check connection.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleInstall = async (slug: string) => {
+    setInstalling(slug);
+    setInstalledMsg((prev) => ({ ...prev, [slug]: "" }));
+    try {
+      const res = await fetch("/api/plugins/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      const data = (await res.json()) as { success: boolean; message: string };
+      setInstalledMsg((prev) => ({ ...prev, [slug]: data.message }));
+    } catch {
+      setInstalledMsg((prev) => ({ ...prev, [slug]: "Install failed." }));
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card/60 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-base">🔌</span>
+        <h2 className="text-sm font-semibold text-foreground">Install Plugin</h2>
+        <span className="text-xs text-muted-foreground ml-1">via Hangar (PaperMC)</span>
+      </div>
+
+      <div className="flex gap-2 mb-3">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          placeholder="Search plugins... (e.g. LuckPerms, Essentials)"
+          className="flex-1 bg-background border border-border rounded-md px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors"
+        />
+        <button
+          onClick={handleSearch}
+          disabled={searching || !query.trim()}
+          className="px-4 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity whitespace-nowrap"
+        >
+          {searching ? "Searching..." : "Search"}
+        </button>
+      </div>
+
+      {searchError && (
+        <p className="text-xs text-muted-foreground mb-2">{searchError}</p>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          {results.map((p) => (
+            <div
+              key={p.namespace.slug}
+              className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background/50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-medium text-foreground">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">by {p.namespace.owner}</span>
+                  <span className="text-xs text-muted-foreground/60">·</span>
+                  <span className="text-xs text-muted-foreground/60">{p.stats.downloads.toLocaleString()} downloads</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{p.description}</p>
+                {installedMsg[p.namespace.slug] && (
+                  <p className={`text-xs mt-1 ${installedMsg[p.namespace.slug].includes("failed") || installedMsg[p.namespace.slug].includes("Error") ? "text-red-400" : "text-green-400"}`}>
+                    {installedMsg[p.namespace.slug]}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => handleInstall(p.namespace.slug)}
+                disabled={installing === p.namespace.slug}
+                className="shrink-0 px-3 py-1 rounded text-xs font-medium bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {installing === p.namespace.slug ? "Installing..." : "Install"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const { logs, status, connected, startServer, stopServer, sendCommand } = useMinecraftServer();
+  const { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit } = useMinecraftServer();
   const [command, setCommand] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
@@ -80,6 +203,25 @@ export default function Dashboard() {
   const canStart = status === "stopped";
   const canStop = status === "running" || status === "starting";
 
+  const playitCanStart = playit.status === "stopped";
+  const playitCanStop = playit.status !== "stopped";
+
+  const playitStatusColors: Record<string, string> = {
+    stopped: "bg-slate-400",
+    downloading: "bg-blue-400 animate-pulse",
+    starting: "bg-yellow-400 animate-pulse",
+    claiming: "bg-orange-400 animate-pulse",
+    running: "bg-green-400",
+  };
+
+  const playitStatusLabels: Record<string, string> = {
+    stopped: "Stopped",
+    downloading: "Downloading...",
+    starting: "Starting...",
+    claiming: "Needs Setup",
+    running: "Running",
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -96,7 +238,6 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* WS connection dot */}
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
               {connected ? "Connected" : "Reconnecting..."}
@@ -131,16 +272,45 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 py-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
           <span>Port: <span className="text-foreground font-mono">25565</span> (Java)</span>
           <span>Bedrock: <span className="text-foreground font-mono">19132</span> (Geyser)</span>
-          <span>Plugins: <span className="text-green-400">Geyser · Floodgate · ViaVersion · ViaBackwards · playit</span></span>
+          <span>Plugins: <span className="text-green-400">Geyser · Floodgate · ViaVersion · ViaBackwards</span></span>
           <span className="ml-auto">Mode: <span className="text-foreground">Offline (cracked ok)</span></span>
         </div>
       </div>
+
+      {/* playit claim code banner */}
+      {playit.claimUrl && !playit.isSetup && (
+        <div className="bg-orange-950/60 border-b border-orange-700/50">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+              <span className="text-sm font-semibold text-orange-300">playit.gg needs to be claimed</span>
+            </div>
+            <div className="flex items-center gap-2 bg-black/30 border border-orange-700/40 rounded-lg px-3 py-1.5">
+              <span className="font-mono text-xs text-orange-200 break-all">{playit.claimUrl}</span>
+              <button
+                onClick={() => navigator.clipboard.writeText(playit.claimUrl!)}
+                className="text-xs text-orange-400 hover:text-orange-200 transition-colors ml-1 shrink-0"
+                title="Copy claim URL"
+              >
+                Copy
+              </button>
+            </div>
+            <a
+              href={playit.claimUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-3 py-1.5 rounded-md bg-orange-600/70 hover:bg-orange-600 text-white transition-colors font-medium"
+            >
+              Open & Claim →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <main className="flex-1 flex flex-col max-w-7xl mx-auto w-full px-4 py-4 gap-3">
         {/* Log console */}
         <div className="flex-1 flex flex-col rounded-xl border border-border bg-[#0d1117] overflow-hidden min-h-0">
-          {/* Console header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 bg-black/30">
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-red-500/70" />
@@ -171,13 +341,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Log output */}
           <div
             ref={logContainerRef}
             onScroll={handleScroll}
             data-testid="log-container"
             className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed"
-            style={{ minHeight: "300px", maxHeight: "calc(100vh - 280px)" }}
+            style={{ minHeight: "300px", maxHeight: "calc(100vh - 320px)" }}
           >
             {logs.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
@@ -198,7 +367,6 @@ export default function Dashboard() {
             <div ref={logEndRef} />
           </div>
 
-          {/* Command input */}
           <div className="border-t border-border/60 bg-black/20 px-4 py-2 flex gap-2 items-center">
             <span className="text-primary font-mono text-sm select-none">&gt;</span>
             <input
@@ -222,25 +390,77 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Plugin cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-          {[
-            { name: "Geyser", desc: "Bedrock support", color: "text-blue-400", bg: "bg-blue-900/20 border-blue-800/40" },
-            { name: "Floodgate", desc: "Bedrock auth", color: "text-cyan-400", bg: "bg-cyan-900/20 border-cyan-800/40" },
-            { name: "ViaVersion", desc: "Newer versions", color: "text-purple-400", bg: "bg-purple-900/20 border-purple-800/40" },
-            { name: "ViaBackwards", desc: "Older versions", color: "text-pink-400", bg: "bg-pink-900/20 border-pink-800/40" },
-            { name: "playit.gg", desc: "Public tunnel", color: "text-green-400", bg: "bg-green-900/20 border-green-800/40" },
-          ].map((p) => (
-            <div key={p.name} className={`rounded-lg border p-3 ${p.bg}`}>
-              <p className={`text-sm font-semibold ${p.color}`}>{p.name}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
-              <div className="mt-1.5 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                <span className="text-xs text-green-400">Installed</span>
+        {/* Bottom row: playit card + plugin cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Playit tunnel card */}
+          <div className="rounded-xl border border-violet-800/40 bg-violet-900/20 p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🌐</span>
+                <span className="text-sm font-semibold text-violet-300">playit.gg Tunnel</span>
               </div>
+              <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border ${
+                playit.status === "running"
+                  ? "bg-green-900/40 text-green-300 border-green-700"
+                  : playit.status === "claiming"
+                  ? "bg-orange-900/40 text-orange-300 border-orange-700"
+                  : playit.status === "stopped"
+                  ? "bg-slate-700 text-slate-300 border-slate-600"
+                  : "bg-yellow-900/40 text-yellow-300 border-yellow-700"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${playitStatusColors[playit.status]}`} />
+                {playitStatusLabels[playit.status]}
+              </span>
             </div>
-          ))}
+
+            <p className="text-xs text-muted-foreground">
+              {playit.isSetup
+                ? "Tunnel is active. Players can connect via your playit.gg address."
+                : playit.claimUrl
+                ? "Claim your tunnel to complete setup."
+                : "Start the tunnel to get a public IP for your server."}
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={startPlayit}
+                disabled={!playitCanStart}
+                className="flex-1 px-3 py-1.5 rounded-md text-xs font-medium bg-violet-600/70 hover:bg-violet-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {playit.status === "downloading" ? "Downloading..." : "Start Tunnel"}
+              </button>
+              <button
+                onClick={stopPlayit}
+                disabled={!playitCanStop}
+                className="flex-1 px-3 py-1.5 rounded-md text-xs font-medium bg-destructive/70 text-destructive-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-destructive/90 transition-colors"
+              >
+                Stop
+              </button>
+            </div>
+          </div>
+
+          {/* Plugin cards */}
+          <div className="md:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { name: "Geyser", desc: "Bedrock support", color: "text-blue-400", bg: "bg-blue-900/20 border-blue-800/40" },
+              { name: "Floodgate", desc: "Bedrock auth", color: "text-cyan-400", bg: "bg-cyan-900/20 border-cyan-800/40" },
+              { name: "ViaVersion", desc: "Newer versions", color: "text-purple-400", bg: "bg-purple-900/20 border-purple-800/40" },
+              { name: "ViaBackwards", desc: "Older versions", color: "text-pink-400", bg: "bg-pink-900/20 border-pink-800/40" },
+            ].map((p) => (
+              <div key={p.name} className={`rounded-lg border p-3 ${p.bg}`}>
+                <p className={`text-sm font-semibold ${p.color}`}>{p.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
+                <div className="mt-1.5 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="text-xs text-green-400">Installed</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Plugin installer */}
+        <PluginInstaller />
       </main>
     </div>
   );
