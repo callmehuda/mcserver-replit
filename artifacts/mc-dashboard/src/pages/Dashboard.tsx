@@ -153,7 +153,7 @@ function PluginInstaller() {
 }
 
 export default function Dashboard() {
-  const { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit } = useMinecraftServer();
+  const { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit, resetPlayit } = useMinecraftServer();
   const [command, setCommand] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
@@ -210,7 +210,8 @@ export default function Dashboard() {
     stopped: "bg-slate-400",
     downloading: "bg-blue-400 animate-pulse",
     starting: "bg-yellow-400 animate-pulse",
-    claiming: "bg-orange-400 animate-pulse",
+    claiming: "bg-yellow-400 animate-pulse",
+    waiting_claim: "bg-orange-400 animate-pulse",
     running: "bg-green-400",
   };
 
@@ -218,7 +219,8 @@ export default function Dashboard() {
     stopped: "Stopped",
     downloading: "Downloading...",
     starting: "Starting...",
-    claiming: "Needs Setup",
+    claiming: "Generating...",
+    waiting_claim: "Waiting Claim",
     running: "Running",
   };
 
@@ -415,13 +417,15 @@ export default function Dashboard() {
 
             <p className="text-xs text-muted-foreground">
               {playit.isSetup
-                ? "Tunnel is active. Players can connect via your playit.gg address."
-                : playit.claimUrl
-                ? "Claim your tunnel to complete setup."
+                ? "Tunnel active. Players can connect via your playit.gg address."
+                : playit.status === "waiting_claim"
+                ? "Open the claim URL above, then wait — tunnel will start automatically."
+                : playit.status === "claiming"
+                ? "Generating claim code..."
                 : "Start the tunnel to get a public IP for your server."}
             </p>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <button
                 onClick={startPlayit}
                 disabled={!playitCanStart}
@@ -436,6 +440,16 @@ export default function Dashboard() {
               >
                 Stop
               </button>
+              {playit.secretExists && (
+                <button
+                  onClick={resetPlayit}
+                  disabled={playitCanStop}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Remove saved secret and re-claim"
+                >
+                  Reset
+                </button>
+              )}
             </div>
           </div>
 

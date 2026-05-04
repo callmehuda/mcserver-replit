@@ -17,4 +17,9 @@ router.post("/playit/stop", (_req, res) => {
   res.json(result);
 });
 
+router.post("/playit/reset", (_req, res) => {
+  const result = playitManager.reset();
+  res.json(result);
+});
+
 export default router;

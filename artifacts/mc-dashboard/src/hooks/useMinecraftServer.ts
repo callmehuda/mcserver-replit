@@ -14,6 +14,7 @@ export interface PlayitInfo {
   claimUrl: string | null;
   isSetup: boolean;
   binaryExists: boolean;
+  secretExists: boolean;
 }
 
 const API_BASE = "/api";
@@ -117,5 +118,9 @@ export function useMinecraftServer() {
     await fetch(`${API_BASE}/playit/stop`, { method: "POST" });
   };
 
-  return { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit };
+  const resetPlayit = async () => {
+    await fetch(`${API_BASE}/playit/reset`, { method: "POST" });
+  };
+
+  return { logs, status, connected, startServer, stopServer, sendCommand, playit, startPlayit, stopPlayit, resetPlayit };
 }
