@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Minecraft Server Dashboard"
+version = "1.0.0"
+id = "artifacts/mc-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19952
+
+[services.development]
+run = "pnpm --filter @workspace/mc-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mc-dashboard", "run", "build" ]
+publicDir = "artifacts/mc-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19952"
+BASE_PATH = "/"
